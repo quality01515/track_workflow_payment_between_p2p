@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  build:
+    name: Lint & build (web)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      # Installs the whole workspace from the root lockfile.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint --workspace=web
+
+      - name: Build web
+        run: npm run build --workspace=web
+
+      - name: Generate Prisma client
+        run: npx prisma generate --schema apps/api/prisma/schema.prisma
+
+      - name: Lint api
+        run: npm run lint --workspace=api
+
+      - name: Build api
+        run: npm run build --workspace=api
+
+      # The permission matrix and token rotation are the highest-risk logic in
+      # the codebase; a red test here must stop the deploy.
+      - name: Test api
+        run: npm run test --workspace=api

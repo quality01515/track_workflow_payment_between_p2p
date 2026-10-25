@@ -1,0 +1,52 @@
+# syntax=docker/dockerfile:1
+#
+# Build context is the MONOREPO ROOT, not apps/web:
+#   docker compose build web        (see docker-compose.yml)
+#   docker build -f apps/web/Dockerfile .
+#
+# Next.js `output: "standalone"` traces from the workspace root, so the server
+# entrypoint lands at .next/standalone/apps/web/server.js — paths below reflect that.
+
+# ---------- deps ----------
+FROM node:22-alpine AS deps
+# Next.js needs glibc compatibility shims on Alpine.
+RUN apk add --no-cache libc6-compat
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY apps/web/package.json ./apps/web/
+# The lockfile must carry linux-musl native binaries (lightningcss, @tailwindcss/oxide,
+# @next/swc) or this fails with "Cannot find module '*.linux-x64-musl.node'". Regenerate it
+# with node_modules absent, or npm prunes the tree to the current platform only.
+RUN npm ci --include=optional
+
+# ---------- build ----------
+FROM node:22-alpine AS builder
+WORKDIR /app
+ENV NEXT_TELEMETRY_DISABLED=1
+# Copy the whole installed tree rather than individual node_modules paths: npm hoists to the
+# root on Linux and does not create apps/web/node_modules, so naming that path directly fails.
+COPY --from=deps /app ./
+COPY . .
+RUN npm run build --workspace=web
+
+# ---------- run ----------
+FROM node:22-alpine AS runner
+RUN apk add --no-cache libc6-compat
+WORKDIR /app
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
+
+# Run as a non-root user.
+RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
+
+# standalone/ contains the traced server + node_modules, mirroring the repo layout.
+COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/static ./apps/web/.next/static
+COPY --from=builder --chown=nextjs:nodejs /app/apps/web/public ./apps/web/public
+
+USER nextjs
+EXPOSE 3000
+
+CMD ["node", "apps/web/server.js"]

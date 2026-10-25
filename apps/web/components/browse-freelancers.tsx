@@ -1,0 +1,647 @@
+"use client";
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { Portrait } from "@/components/brand";
+import { Checkbox } from "@/components/checkbox";
+import { Close, Search, Star } from "@/components/icons";
+import { Select } from "@/components/select";
+import { AVAILABILITY, CATEGORIES, CATEGORIES_COLLAPSED } from "@/lib/categories";
+import { ApiError, api } from "@/lib/api";
+
+/** The card's view shape, adapted from an API profile row. */
+type Freelancer = {
+  slug: string;
+  name: string;
+  title: string;
+  blurb: string;
+  category: string;
+  allSkills: string[];
+  skills: string[];
+  rate: number;
+  rating: number;
+  reviews: number;
+  availability: string;
+  photo: string | null;
+  idVerified: boolean;
+  joined: string;
+};
+
+function initialsOf(name: string): string {
+  return name.split(/\s+/).map((p) => p[0] ?? "").join("").slice(0, 2).toUpperCase() || "?";
+}
+
+/** Fallback avatar for a freelancer who hasn't uploaded a photo yet. */
+function InitialsAvatar({ name, className = "" }: { name: string; className?: string }) {
+  return (
+    <span
+      className={`grid shrink-0 place-items-center rounded-full bg-gradient-to-br from-brand-400 to-brand-700 font-semibold text-white ${className}`}
+    >
+      {initialsOf(name)}
+    </span>
+  );
+}
+
+function adapt(r: Record<string, unknown>): Freelancer {
+  const skills = (r.skills as string[] | undefined) ?? [];
+  return {
+    slug: String(r.slug ?? ""),
+    name: String(r.displayName ?? ""),
+    title: (r.headline as string | null) ?? "",
+    blurb: (r.bio as string | null) ?? "",
+    category: String(r.category ?? ""),
+    allSkills: skills,
+    skills: skills.slice(0, 4),
+    rate: Number(r.hourlyRate ?? 0),
+    rating: Number(r.rating ?? 0),
+    reviews: Number(r.reviewCount ?? 0),
+    availability: (r.availability as string | null) ?? "",
+    photo: (r.photoPath as string | null) ?? null,
+    idVerified: true, // search only returns verified (visible) freelancers
+    joined: String(r.createdAt ?? r.updatedAt ?? ""),
+  };
+}
+
+const ANY_AVAILABILITY = "Anytime";
+
+const RATINGS = [
+  { label: "5.0", min: 5 },
+  { label: "4.0 & up", min: 4 },
+  { label: "3.0 & up", min: 3 },
+  { label: "2.0 & up", min: 2 },
+];
+
+const SORTS = ["Newest", "Top rated", "Lowest price", "Highest price"] as const;
+const PAGE_SIZE = 12;
+type Sort = (typeof SORTS)[number];
+
+type Filters = {
+  /** Empty means no category filter — the same result as ticking every box. */
+  categories: string[];
+  skill: string;
+  min: string;
+  max: string;
+  rating: number;
+  availability: string;
+};
+
+const EMPTY: Filters = {
+  categories: [],
+  skill: "",
+  min: "",
+  max: "",
+  rating: 0,
+  availability: ANY_AVAILABILITY,
+};
+
+/** "Marketing", "Marketing and Legal", "3 categories". */
+function describeCategories(picked: string[]): string {
+  if (picked.length === 1) return picked[0];
+  if (picked.length === 2) return `${picked[0]} and ${picked[1]}`;
+  return `${picked.length} categories`;
+}
+
+const numberBase =
+  "w-full rounded-lg border bg-white px-3.5 py-2.5 text-sm text-navy-800 placeholder:text-slate-400 focus:outline-none focus:ring-2";
+
+export function BrowseFreelancers({ initialCategories = [] }: { initialCategories?: string[] }) {
+  // Every control filters as you change it. An explicit "apply" step made the
+  // sidebar look broken: clicking a category did nothing until you found the button.
+  const [filters, setFilters] = useState<Filters>({
+    ...EMPTY,
+    // Anything in the URL that isn't a real category is dropped rather than
+    // filtered on, which would silently return nothing.
+    categories: initialCategories.filter((c) => (CATEGORIES as readonly string[]).includes(c)),
+  });
+  // A deep link can arrive with a category that lives past the "More" cut, so
+  // start expanded when one of those is already selected.
+  const [showAllCategories, setShowAllCategories] = useState(() =>
+    initialCategories.some((c) => CATEGORIES.indexOf(c as (typeof CATEGORIES)[number]) >= CATEGORIES_COLLAPSED),
+  );
+  const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<Sort>("Newest");
+  const resultsRef = useRef<HTMLDivElement>(null);
+
+  const [results, setResults] = useState<Freelancer[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
+  const [skills, setSkills] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const router = useRouter();
+
+  // Any change to a filter/sort/search returns to the first page. Done in the
+  // handlers (not an effect) so it never triggers a cascading render.
+  const set = (patch: Partial<Filters>) => {
+    setFilters((f) => ({ ...f, ...patch }));
+    setPage(0);
+  };
+
+  const toggleCategory = (name: string) => {
+    setFilters((f) => ({
+      ...f,
+      categories: f.categories.includes(name)
+        ? f.categories.filter((c) => c !== name)
+        : [...f.categories, name],
+    }));
+    setPage(0);
+  };
+
+  const changeSort = (value: Sort) => {
+    setSort(value);
+    setPage(0);
+  };
+
+  const changeSearch = (value: string) => {
+    setSearch(value);
+    setPage(0);
+  };
+
+  // The skill list comes from the whole roster (a dedicated endpoint), not just
+  // the current page.
+  useEffect(() => {
+    api.freelancers.skills().then(setSkills).catch(() => undefined);
+  }, []);
+
+  // Debounce the free-text search so we don't hit the API on every keystroke.
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(id);
+  }, [search]);
+
+  // Blank price field means "no bound". Kept for input validation only — the
+  // actual filtering happens on the server.
+  const min = filters.min.trim() === "" ? 0 : Number(filters.min);
+  const max = filters.max.trim() === "" ? Infinity : Number(filters.max);
+  const rangeInverted = Number.isFinite(max) && min > max;
+
+  const sortParam =
+    sort === "Top rated"
+      ? "rating"
+      : sort === "Lowest price"
+        ? "price_asc"
+        : sort === "Highest price"
+          ? "price_desc"
+          : "newest";
+
+  // Server-side search: all filtering, sorting and pagination happen in the API,
+  // over the whole roster, so results are correct at any scale.
+  useEffect(() => {
+    if (rangeInverted) return; // an inverted price range would return nothing
+    let live = true;
+    const qs: Record<string, string | number | undefined> = {
+      q: debouncedSearch.trim() || undefined,
+      categories: filters.categories.length ? filters.categories.join(",") : undefined,
+      skill: filters.skill || undefined,
+      availability: filters.availability !== ANY_AVAILABILITY ? filters.availability : undefined,
+      minRating: filters.rating || undefined,
+      minPrice: filters.min.trim() !== "" ? Number(filters.min) : undefined,
+      maxPrice: filters.max.trim() !== "" ? Number(filters.max) : undefined,
+      sort: sortParam,
+      take: PAGE_SIZE,
+      skip: page * PAGE_SIZE,
+    };
+    api.freelancers
+      .search(qs)
+      .then((res) => {
+        if (!live) return;
+        setResults((res.items as Record<string, unknown>[]).map(adapt));
+        setTotal(res.total);
+      })
+      .catch((err) => {
+        if (!live) return;
+        // Browsing needs a session; a missing/expired one sends you to log in.
+        if (err instanceof ApiError && (err.status === 401 || err.status === 0)) {
+          router.replace("/login?next=/freelancers");
+        } else {
+          setLoadError(true);
+        }
+      })
+      .finally(() => {
+        if (live) setLoading(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, [debouncedSearch, filters, sortParam, page, rangeInverted, router]);
+
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  const activeCount =
+    filters.categories.length +
+    (filters.skill ? 1 : 0) +
+    (filters.min.trim() !== "" || filters.max.trim() !== "" ? 1 : 0) +
+    (filters.rating ? 1 : 0) +
+    (filters.availability !== ANY_AVAILABILITY ? 1 : 0);
+
+  const shownCategories = showAllCategories ? CATEGORIES : CATEGORIES.slice(0, CATEGORIES_COLLAPSED);
+
+  return (
+    <div className="mx-auto max-w-page px-6 lg:px-10 xl:px-16 py-8">
+      {/* ----------------------------- search bar ---------------------------- */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+        <form className="flex flex-1 gap-3" onSubmit={(e) => e.preventDefault()} role="search">
+          <label className="sr-only" htmlFor="browse-search">
+            Search by keyword, skill or service
+          </label>
+          <input
+            id="browse-search"
+            type="search"
+            value={search}
+            onChange={(e) => changeSearch(e.target.value)}
+            placeholder="Search by keyword, skill or service..."
+            className="w-full rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-navy-800 placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100"
+          />
+          <button
+            type="submit"
+            className="shrink-0 rounded-lg bg-brand-600 px-7 py-3 text-sm font-semibold text-white transition hover:bg-brand-700"
+          >
+            Search
+          </button>
+        </form>
+
+        <div className="flex items-center gap-3 sm:shrink-0">
+          <span className="text-sm text-slate-500">Sort by</span>
+          <Select
+            ariaLabel="Sort by"
+            value={sort}
+            onChange={(v) => changeSort(v as Sort)}
+            options={SORTS.map((s) => ({ value: s, label: s }))}
+            className="sm:w-44"
+          />
+        </div>
+      </div>
+
+      <div className="mt-6 grid gap-6 lg:grid-cols-[280px_1fr]">
+        {/* ------------------------------ filters ---------------------------- */}
+        <aside className="h-fit rounded-xl border border-slate-200 bg-white p-5">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-bold text-navy-800">Filters</h2>
+            <button
+              type="button"
+              onClick={() => {
+                setFilters(EMPTY);
+                setSearch("");
+                setPage(0);
+              }}
+              disabled={activeCount === 0}
+              className="text-xs text-brand-600 transition hover:text-brand-700 disabled:text-slate-300"
+            >
+              Clear all{activeCount ? ` (${activeCount})` : ""}
+            </button>
+          </div>
+
+          {/* Categories are multi-select and combine as OR. No selection is the
+              same as every selection, so "All categories" is a reset rather
+              than a box of its own. */}
+          <fieldset className="mt-5">
+            <div className="flex items-center justify-between">
+              <legend className="text-sm font-semibold text-navy-800">Category</legend>
+              {filters.categories.length ? (
+                <button
+                  type="button"
+                  onClick={() => set({ categories: [] })}
+                  className="text-xs text-brand-600 transition hover:text-brand-700"
+                >
+                  Clear
+                </button>
+              ) : null}
+            </div>
+
+            <ul className="mt-3 space-y-1">
+              <li>
+                <button
+                  type="button"
+                  aria-pressed={filters.categories.length === 0}
+                  onClick={() => set({ categories: [] })}
+                  className={`flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm transition ${
+                    filters.categories.length === 0
+                      ? "bg-slate-100 font-medium text-navy-800"
+                      : "text-slate-500 hover:text-navy-800"
+                  }`}
+                >
+                  <span className="flex-1">All categories</span>
+                </button>
+              </li>
+
+              {shownCategories.map((c) => {
+                const on = filters.categories.includes(c);
+                return (
+                  <li key={c}>
+                    <label
+                      className={`flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition ${
+                        on ? "bg-slate-100 font-medium text-navy-800" : "text-slate-500 hover:text-navy-800"
+                      }`}
+                    >
+                      <Checkbox checked={on} onChange={() => toggleCategory(c)} />
+                      <span className="flex-1">{c}</span>
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+
+            {CATEGORIES.length > CATEGORIES_COLLAPSED ? (
+              <button
+                type="button"
+                aria-expanded={showAllCategories}
+                onClick={() => setShowAllCategories(!showAllCategories)}
+                className="mt-2 px-2.5 text-sm font-medium text-brand-600 hover:text-brand-700"
+              >
+                {showAllCategories ? "Show fewer" : `More (${CATEGORIES.length - CATEGORIES_COLLAPSED})`}
+              </button>
+            ) : null}
+          </fieldset>
+
+          <div className="mt-6">
+            <h3 className="text-sm font-semibold text-navy-800">Skills</h3>
+            <Select
+              ariaLabel="Skills"
+              value={filters.skill}
+              onChange={(v) => set({ skill: v })}
+              options={[{ value: "", label: "All skills" }, ...skills.map((s) => ({ value: s, label: s }))]}
+              className="mt-3"
+            />
+          </div>
+
+          <div className="mt-6">
+            <h3 className="text-sm font-semibold text-navy-800">Price Range (USD)</h3>
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <input
+                type="number"
+                min={0}
+                inputMode="numeric"
+                aria-label="Minimum hourly rate"
+                aria-invalid={rangeInverted || undefined}
+                placeholder="Min"
+                value={filters.min}
+                onChange={(e) => set({ min: e.target.value })}
+                className={`${numberBase} ${
+                  rangeInverted
+                    ? "border-red-400 focus:border-red-500 focus:ring-red-100"
+                    : "border-slate-200 focus:border-brand-500 focus:ring-brand-100"
+                }`}
+              />
+              <input
+                type="number"
+                min={0}
+                inputMode="numeric"
+                aria-label="Maximum hourly rate"
+                aria-invalid={rangeInverted || undefined}
+                placeholder="Max"
+                value={filters.max}
+                onChange={(e) => set({ max: e.target.value })}
+                className={`${numberBase} ${
+                  rangeInverted
+                    ? "border-red-400 focus:border-red-500 focus:ring-red-100"
+                    : "border-slate-200 focus:border-brand-500 focus:ring-brand-100"
+                }`}
+              />
+            </div>
+            {rangeInverted ? (
+              <p role="alert" className="mt-2 text-xs text-red-600">
+                Min is above max, so nothing can match.
+              </p>
+            ) : null}
+          </div>
+
+          <div className="mt-6">
+            <h3 className="text-sm font-semibold text-navy-800">Availability</h3>
+            <Select
+              ariaLabel="Availability"
+              value={filters.availability}
+              onChange={(v) => set({ availability: v })}
+              options={AVAILABILITY.map((a) => ({ value: a, label: a }))}
+              className="mt-3"
+            />
+          </div>
+
+          <fieldset className="mt-6">
+            <legend className="text-sm font-semibold text-navy-800">Rating</legend>
+            <div className="mt-3 space-y-2.5">
+              {RATINGS.map((r) => (
+                <label key={r.label} className="flex items-center gap-2.5 text-sm text-slate-600">
+                  <input
+                    type="radio"
+                    name="rating"
+                    checked={filters.rating === r.min}
+                    onChange={() => set({ rating: r.min })}
+                    className="h-4 w-4 accent-brand-600"
+                  />
+                  {r.label}
+                </label>
+              ))}
+              {filters.rating ? (
+                <button
+                  type="button"
+                  onClick={() => set({ rating: 0 })}
+                  className="text-xs text-brand-600 hover:text-brand-700"
+                >
+                  Any rating
+                </button>
+              ) : null}
+            </div>
+          </fieldset>
+
+          {/* Filters are already live; on narrow screens the sidebar sits above
+              the list, so this jumps down to the results it just changed. */}
+          <button
+            type="button"
+            onClick={() => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+            className="mt-6 w-full rounded-lg bg-brand-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-brand-700"
+          >
+            Show {total} {total === 1 ? "result" : "results"}
+          </button>
+        </aside>
+
+        {/* ------------------------------ results ---------------------------- */}
+        <div ref={resultsRef} className="scroll-mt-24">
+          <p role="status" className="mb-3 text-sm text-slate-500">
+            {loading ? (
+              "Loading freelancers…"
+            ) : (
+              <>
+                <span className="font-semibold text-navy-800">{total}</span>{" "}
+                {total === 1 ? "freelancer" : "freelancers"}
+                {filters.categories.length ? ` in ${describeCategories(filters.categories)}` : ""}
+              </>
+            )}
+          </p>
+
+          {/* The picked categories, removable from here. Without this a choice
+              made before collapsing the "More" list would be filtering the page
+              with nothing on screen to say so. */}
+          {filters.categories.length ? (
+            <ul className="mb-4 flex flex-wrap gap-2">
+              {filters.categories.map((c) => (
+                <li key={c}>
+                  <button
+                    type="button"
+                    onClick={() => toggleCategory(c)}
+                    className="flex items-center gap-1.5 rounded-full bg-brand-50 py-1.5 pl-3 pr-2.5 text-xs font-medium text-brand-700 transition hover:bg-brand-100"
+                  >
+                    {c}
+                    <Close className="h-3.5 w-3.5" />
+                    <span className="sr-only">Remove {c} filter</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+
+          {loadError ? (
+            <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">
+              We couldn&apos;t load freelancers just now. Refresh to try again.
+            </div>
+          ) : loading ? (
+            <div className="space-y-5">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="h-40 animate-pulse rounded-xl border border-slate-200 bg-slate-50" />
+              ))}
+            </div>
+          ) : results.length === 0 ? (
+            <div className="rounded-xl border border-slate-200 bg-white p-10 text-center">
+              <p className="font-semibold text-navy-800">No freelancers match your filters yet</p>
+              <p className="mt-1 text-sm text-slate-500">
+                Try widening your search, or check back soon as more people get verified.
+              </p>
+            </div>
+          ) : (
+          <div className="space-y-5">
+            {results.map((f) => (
+              <article key={f.slug} className="overflow-hidden rounded-xl border border-slate-200 bg-white p-6 sm:h-52">
+                <div className="flex h-full flex-col gap-5 sm:flex-row">
+                  {f.photo ? (
+                    <Portrait src={f.photo} sizes="96px" className="h-24 w-24 shrink-0" />
+                  ) : (
+                    <InitialsAvatar name={f.name} className="h-24 w-24 shrink-0 text-2xl" />
+                  )}
+
+                  <div className="flex min-w-0 flex-1 flex-col">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-lg font-bold text-navy-800">{f.name}</h3>
+                          {f.idVerified ? (
+                            <span
+                              title="Identity verified"
+                              className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-brand-600 text-white"
+                            >
+                              <span className="sr-only">Identity verified</span>
+                              <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden>
+                                <path
+                                  d="m5 12.5 4.5 4.5L19 7"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="3"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                />
+                              </svg>
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className="mt-1 text-sm text-slate-500">{f.title}</p>
+                      </div>
+
+                      <div className="text-right">
+                        <p className="text-xl font-bold text-navy-800">
+                          ${f.rate}
+                          <span className="text-xs font-medium text-slate-400"> /hr</span>
+                        </p>
+                        <p className="mt-1 flex items-center justify-end gap-1.5 text-sm">
+                          <Star className="h-5 w-5 text-amber-400" />
+                          <span className="font-semibold text-navy-800">{f.rating.toFixed(1)}</span>
+                          <span className="text-slate-400">({f.reviews})</span>
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 flex h-7 flex-wrap gap-2 overflow-hidden">
+                      {f.skills.slice(0, 6).map((s) => (
+                        <span key={s} className="rounded-md bg-slate-100 px-2.5 py-1 text-xs text-slate-600">
+                          {s}
+                        </span>
+                      ))}
+                      {f.skills.length > 6 ? (
+                        <span className="rounded-md bg-slate-100 px-2.5 py-1 text-xs text-slate-400">
+                          +{f.skills.length - 6}
+                        </span>
+                      ) : null}
+                    </div>
+
+                    <div className="mt-auto flex flex-wrap items-end justify-between gap-4 pt-4">
+                      <p className="line-clamp-2 max-w-lg text-sm leading-relaxed text-slate-500">{f.blurb}</p>
+                      <Link
+                        href={`/freelancers/${f.slug}`}
+                        className="shrink-0 rounded-lg border border-brand-200 px-5 py-2.5 text-sm font-semibold text-brand-600 transition hover:bg-brand-50"
+                      >
+                        View Profile
+                      </Link>
+                    </div>
+                  </div>
+                </div>
+              </article>
+            ))}
+
+            {results.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-slate-300 bg-white px-6 py-16 text-center">
+                <Search className="mx-auto h-10 w-10 text-slate-300" />
+                <p className="mt-3 font-semibold text-navy-800">No freelancers match those filters</p>
+                <p className="mt-1 text-sm text-slate-500">
+                  Try widening the price range or clearing a filter.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilters(EMPTY);
+                    setSearch("");
+                    setPage(0);
+                  }}
+                  className="mt-5 rounded-lg border border-brand-200 px-5 py-2.5 text-sm font-semibold text-brand-600 transition hover:bg-brand-50"
+                >
+                  Clear all filters
+                </button>
+              </div>
+            ) : null}
+          </div>
+          )}
+
+          {pageCount > 1 ? (
+            <nav aria-label="Pagination" className="mt-8 flex items-center justify-center gap-2">
+              <button
+                type="button"
+                disabled={page === 0}
+                onClick={() => {
+                  setPage((p) => Math.max(0, p - 1));
+                  resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}
+                className="grid h-9 w-9 place-items-center rounded-md text-slate-500 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-transparent"
+                aria-label="Previous page"
+              >
+                ‹
+              </button>
+              <span className="px-2 text-sm text-slate-500">
+                Page {page + 1} of {pageCount}
+              </span>
+              <button
+                type="button"
+                disabled={page + 1 >= pageCount}
+                onClick={() => {
+                  setPage((p) => Math.min(pageCount - 1, p + 1));
+                  resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}
+                className="grid h-9 w-9 place-items-center rounded-md text-slate-500 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-transparent"
+                aria-label="Next page"
+              >
+                ›
+              </button>
+            </nav>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}

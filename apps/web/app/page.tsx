@@ -1,0 +1,700 @@
+import Image from "next/image";
+import Link from "next/link";
+import { Portrait } from "@/components/brand";
+import { FeaturedFreelancers } from "@/components/featured-freelancers";
+import { CATEGORIES as ALL_CATEGORIES, type Category } from "@/lib/categories";
+import { BLOG_POSTS as POSTS } from "@/lib/blog";
+
+/* ================================ icons ================================= */
+
+type IconProps = { className?: string };
+
+const stroke = {
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 1.6,
+  strokeLinecap: "round" as const,
+  strokeLinejoin: "round" as const,
+};
+
+function ShieldCheck({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden>
+      <path d="M12 3 5 5.6v5c0 4.3 3 8.3 7 9.6 4-1.3 7-5.3 7-9.6v-5L12 3Z" {...stroke} />
+      <path d="m9 11.8 2.1 2.1L15.2 9.7" {...stroke} strokeWidth={1.9} />
+    </svg>
+  );
+}
+
+function Lock({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden>
+      <rect x="4.8" y="10.5" width="14.4" height="9.7" rx="2.2" {...stroke} />
+      <path d="M8.2 10.5V7.9a3.8 3.8 0 0 1 7.6 0v2.6" {...stroke} />
+    </svg>
+  );
+}
+
+function ChatBubble({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden>
+      <path d="M5 5h14a1.9 1.9 0 0 1 1.9 1.9v7.6A1.9 1.9 0 0 1 19 16.4H9.6L5.6 19.6V6.9A1.9 1.9 0 0 1 7.5 5Z" {...stroke} />
+    </svg>
+  );
+}
+
+function Gift({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden>
+      <rect x="4" y="9.5" width="16" height="10.5" rx="1.6" {...stroke} />
+      <path d="M4 13.2h16M12 9.5V20" {...stroke} />
+      <path d="M12 9.5S10.8 5 8.6 5a2 2 0 0 0 0 4.5Zm0 0S13.2 5 15.4 5a2 2 0 0 1 0 4.5Z" {...stroke} />
+    </svg>
+  );
+}
+
+function Check({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden>
+      <path d="m5 12.5 4.5 4.5L19 7" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function Globe({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden>
+      <circle cx="12" cy="12" r="8.2" {...stroke} />
+      <path d="M3.8 12h16.4M12 3.8c2.1 2.2 3.2 5.1 3.2 8.2S14.1 18 12 20.2C9.9 18 8.8 15.1 8.8 12S9.9 6 12 3.8Z" {...stroke} />
+    </svg>
+  );
+}
+
+function ArrowRight({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden>
+      <path d="M4.5 12h15m-5.6-5.6L19.5 12l-5.6 5.6" {...stroke} strokeWidth={1.8} />
+    </svg>
+  );
+}
+
+function UserPlus({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden>
+      <circle cx="10" cy="8.6" r="3.4" {...stroke} />
+      <path d="M4.2 19.4a5.8 5.8 0 0 1 11.6 0" {...stroke} />
+      <path d="M18.4 8.4v4.4M20.6 10.6h-4.4" {...stroke} strokeWidth={1.9} />
+    </svg>
+  );
+}
+
+function UserGlyph({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden>
+      <circle cx="12" cy="8.4" r="3.6" />
+      <path d="M4.8 20.4a7.2 7.2 0 0 1 14.4 0Z" />
+    </svg>
+  );
+}
+
+/* category glyphs — traced from the comp's icon row */
+
+/* an open ring holding a dot and a slash — the comp's dev/code mark */
+function CodeCircle({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden>
+      <path d="M15.5 4.6A8.2 8.2 0 1 1 8.5 4.6" {...stroke} />
+      <circle cx="9.7" cy="12.3" r="1.15" fill="currentColor" stroke="none" />
+      <path d="M14.9 8.7 12.1 15.5" {...stroke} strokeWidth={1.9} />
+    </svg>
+  );
+}
+
+function Pencil({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden>
+      <path d="M16.1 3.9 20.1 7.9 8.6 19.4l-5.1 1.1 1.1-5.1L16.1 3.9Z" {...stroke} />
+      <path d="m13.9 6.1 4 4" {...stroke} />
+    </svg>
+  );
+}
+
+function Document({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden>
+      <path d="M5.2 4.6h9.6L18.8 8.6v10.8H5.2z" {...stroke} />
+      <path d="M14.6 4.6v4.2h4.2" {...stroke} />
+      <path d="M8.2 11.4h7M8.2 14.2h7M8.2 17h4.4" {...stroke} />
+    </svg>
+  );
+}
+
+function Megaphone({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden>
+      <path d="M17.2 6v12L8.4 15H6.2a1.8 1.8 0 0 1-1.8-1.8v-2.4A1.8 1.8 0 0 1 6.2 9h2.2l8.8-3Z" {...stroke} />
+      <path d="M8.4 15v2.8a1.7 1.7 0 0 0 3.4 0V16" {...stroke} />
+      <path d="M19.8 9.8a3.4 3.4 0 0 1 0 4.4" {...stroke} />
+    </svg>
+  );
+}
+
+function PlayBox({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden>
+      <rect x="4.2" y="6" width="15.6" height="12" rx="2.6" {...stroke} />
+      <path d="m10.6 9.6 4.8 2.4-4.8 2.4V9.6Z" {...stroke} />
+    </svg>
+  );
+}
+
+function AiSpark({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden>
+      <circle cx="12" cy="12" r="3.2" {...stroke} />
+      <circle cx="12" cy="12" r="1.1" fill="currentColor" stroke="none" />
+      <path
+        d="M12 3.2v2.3M12 18.5v2.3M3.2 12h2.3M18.5 12h2.3M5.8 5.8l1.6 1.6M16.6 16.6l1.6 1.6M18.2 5.8l-1.6 1.6M7.4 16.6l-1.6 1.6"
+        {...stroke}
+      />
+    </svg>
+  );
+}
+
+function Briefcase({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden>
+      <rect x="3.8" y="7.4" width="16.4" height="11.2" rx="2.2" {...stroke} />
+      <path d="M9 7.4V6.2a1.7 1.7 0 0 1 1.7-1.7h2.6A1.7 1.7 0 0 1 15 6.2v1.2" {...stroke} />
+      <path d="M3.8 12.2h6.4v1.6h3.6v-1.6h6.4" {...stroke} />
+    </svg>
+  );
+}
+
+function Dots({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden>
+      <circle cx="6.5" cy="12" r="1.7" />
+      <circle cx="12" cy="12" r="1.7" />
+      <circle cx="17.5" cy="12" r="1.7" />
+    </svg>
+  );
+}
+
+/* ============================== primitives ============================== */
+
+function SectionHeading({
+  title,
+  action,
+  href = "#",
+}: {
+  title: string;
+  action?: string;
+  href?: string;
+}) {
+  return (
+    <div className="flex items-end justify-between gap-4">
+      <h2 className="text-2xl font-bold tracking-tight text-navy-800 sm:text-3xl">{title}</h2>
+      {action ? (
+        <Link href={href} className="group hidden shrink-0 items-center gap-1.5 text-sm font-medium text-brand-600 hover:text-brand-700 sm:flex">
+          {action}
+          <ArrowRight className="h-5 w-5 transition group-hover:translate-x-0.5" />
+        </Link>
+      ) : null}
+    </div>
+  );
+}
+
+/* The comp's cards: white, hairline ring, very soft lift — not a hard border. */
+const CARD = "rounded-xl bg-white shadow-[0_1px_2px_rgba(11,28,56,0.04),0_10px_28px_-16px_rgba(11,28,56,0.18)] ring-1 ring-slate-200/70";
+
+/* ================================= data ================================= */
+
+const TRUST_ITEMS = [
+  { icon: <ShieldCheck className="h-7 w-7" />, title: "Verified Community", body: "Every user is verified to build trust and safety." },
+  { icon: <Lock className="h-7 w-7" />, title: "Safe & Secure", body: "Your data and conversations are always protected." },
+  { icon: <ChatBubble className="h-7 w-7" />, title: "Direct Communication", body: "Chat directly with verified users. No middlemen." },
+  { icon: <Gift className="h-7 w-7" />, title: "Free to Use", body: "Join, connect, and grow without any fees." },
+];
+
+/* Tiles link into the browse page pre-filtered. Typing `name` as Category means
+   a tile whose name drifts from the taxonomy fails the build. */
+const CATEGORIES: { icon: React.ReactNode; name: Category }[] = [
+  { icon: <Briefcase className="h-12 w-12" />, name: "Home & Cleaning" },
+  { icon: <CodeCircle className="h-12 w-12" />, name: "Repairs & Trades" },
+  { icon: <PlayBox className="h-12 w-12" />, name: "Moving & Delivery" },
+  { icon: <AiSpark className="h-12 w-12" />, name: "Care & Wellbeing" },
+  { icon: <Document className="h-12 w-12" />, name: "Tutoring & Lessons" },
+  { icon: <Pencil className="h-12 w-12" />, name: "Design & Creative" },
+  { icon: <Megaphone className="h-12 w-12" />, name: "Marketing" },
+];
+
+const STEPS = [
+  { title: "Create an account", body: "Register as a client or freelancer in just a few steps." },
+  { title: "Get verified", body: "Verify your phone and ID before you publish." },
+  { title: "Connect & work", body: "Find the right person, start a chat, and get work done." },
+];
+
+/*
+ * Claims that are true on day one. The comp carried headline user counts
+ * ("15K+ Verified Freelancers", "98% Positive Reviews") which would be false at
+ * launch, so these state what the product guarantees instead of how many people
+ * have signed up. The category count is derived, so it cannot drift.
+ */
+const STATS = [
+  { icon: <ShieldCheck className="h-9 w-9" />, value: "100%", label: "Verified members" },
+  { icon: <Gift className="h-9 w-9" />, value: "0%", label: "Commission or fees" },
+  { icon: <Briefcase className="h-9 w-9" />, value: `${ALL_CATEGORIES.length}`, label: "Fields of work" },
+  { icon: <Globe className="h-9 w-9" />, value: "Global", label: "Clients and freelancers" },
+];
+
+// Real reasons to trust the platform, in place of testimonials we can't
+// honestly show before the community exists.
+const WHY = [
+  {
+    icon: <ShieldCheck className="h-6 w-6" />,
+    title: "Verified people only",
+    body: "Everyone completes verification before they can build a profile, post work, or message — so you always know who you're dealing with.",
+  },
+  {
+    icon: <Lock className="h-6 w-6" />,
+    title: "Your contact stays private",
+    body: "Your phone, email and handles are released only to a verified client, enforced on our servers — never exposed on your public profile.",
+  },
+  {
+    icon: <Gift className="h-6 w-6" />,
+    title: "Free while we grow",
+    body: "No commissions and no fees. Connect and collaborate at no cost while we build the marketplace.",
+  },
+];
+
+
+/* ========================= how-it-works artwork ========================== */
+
+const MOCK = "block rounded bg-slate-200/70";
+
+/**
+ * A filled person silhouette that reaches the edges of whatever frame holds it,
+ * the way a real avatar or ID photo would. UserGlyph is drawn inset within its
+ * 24x24 viewBox, so it is scaled up and the frame clips the overflow.
+ */
+function SilhouetteFill() {
+  return <UserGlyph className="h-full w-full scale-[1.67]" />;
+}
+
+function StepCreateAccount() {
+  return (
+    <div className="relative w-full max-w-[17rem]">
+      <div className="overflow-hidden rounded-lg bg-white shadow-sm ring-1 ring-slate-200/80">
+        <div className="flex items-center gap-1 bg-slate-50 px-2.5 py-2">
+          <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
+          <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+          <span className="ml-2 h-1.5 flex-1 rounded bg-slate-200/70" />
+        </div>
+        <div className="flex gap-2.5 p-3">
+          <span className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-full bg-slate-200/70 text-slate-400">
+            <SilhouetteFill />
+          </span>
+          <div className="flex-1 space-y-1.5 pt-1.5">
+            <span className={`${MOCK} h-1.5 w-full`} />
+            <span className={`${MOCK} h-1.5 w-4/5`} />
+            <span className={`${MOCK} h-1.5 w-3/5`} />
+          </div>
+        </div>
+        <div className="flex gap-2 px-3 pb-3">
+          <span className="h-4 w-16 rounded bg-slate-100" />
+          <span className="h-4 w-10 rounded bg-slate-100" />
+        </div>
+      </div>
+      <span className="absolute -bottom-3 right-3 grid h-14 w-14 place-items-center rounded-full bg-brand-600 text-white shadow-lg shadow-brand-600/25">
+        <UserPlus className="h-6 w-6" />
+      </span>
+    </div>
+  );
+}
+
+function StepGetVerified() {
+  return (
+    <div className="relative w-full max-w-[17rem]">
+      {/* An ID card: square photo, the fields beside it, and a signature strip. */}
+      <div className="overflow-hidden rounded-xl bg-white p-3.5 shadow-sm ring-1 ring-slate-200/80">
+        <div className="flex gap-3.5">
+          <span className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-md bg-brand-100 text-brand-500">
+            <SilhouetteFill />
+          </span>
+          <div className="flex-1 space-y-2 pt-0.5">
+            <span className={`${MOCK} h-1.5 w-full`} />
+            <span className={`${MOCK} h-1.5 w-4/5`} />
+            <span className={`${MOCK} h-1.5 w-3/5`} />
+            <span className={`${MOCK} h-1.5 w-2/3`} />
+          </div>
+        </div>
+
+        <div className="mt-3.5 flex items-center gap-2">
+          <span className="h-4 w-9 shrink-0 rounded bg-slate-100" />
+          <span className={`${MOCK} h-1.5 flex-1`} />
+        </div>
+      </div>
+
+      <span className="absolute -bottom-3 right-2 grid h-14 w-14 place-items-center rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/25">
+        <Check className="h-6 w-6" />
+      </span>
+    </div>
+  );
+}
+
+function StepConnectWork() {
+  return (
+    <div className="w-full max-w-[17rem] space-y-2.5">
+      {/* Two faded stubs of earlier messages, so the thread reads as one already
+          under way rather than two lines floating on their own. */}
+      <div aria-hidden className="flex justify-end pr-13 opacity-45">
+        <span className="h-5 w-20 rounded-2xl rounded-br-md bg-brand-500/60" />
+      </div>
+      <div aria-hidden className="flex pl-13 opacity-45">
+        <span className="h-5 w-16 rounded-2xl rounded-bl-md bg-white shadow-sm ring-1 ring-slate-200/70" />
+      </div>
+
+      {/* incoming */}
+      <div className="flex items-end gap-2.5">
+        <Portrait src="/avatars/community-3.jpg" className="h-11 w-11" sizes="44px" />
+        <div className="max-w-[76%] space-y-2 rounded-2xl rounded-bl-md bg-white px-3.5 py-3 shadow-sm ring-1 ring-slate-200/80">
+          <span className="block h-1.5 w-24 rounded-full bg-slate-200/90" />
+          <span className="block h-1.5 w-14 rounded-full bg-slate-200/70" />
+        </div>
+      </div>
+
+      {/* outgoing */}
+      <div className="flex items-end justify-end gap-2.5">
+        <div className="max-w-[76%] space-y-2 rounded-2xl rounded-br-md bg-brand-600 px-3.5 py-3 shadow-sm shadow-brand-600/20">
+          <span className="block h-1.5 w-20 rounded-full bg-white/85" />
+          <span className="block h-1.5 w-12 rounded-full bg-white/60" />
+        </div>
+        <Portrait src="/avatars/community-2.jpg" className="h-11 w-11" sizes="44px" />
+      </div>
+    </div>
+  );
+}
+
+const STEP_ART = [<StepCreateAccount key="1" />, <StepGetVerified key="2" />, <StepConnectWork key="3" />];
+
+/* =============================== hero card =============================== */
+
+function VerifiedCard({ className = "" }: { className?: string }) {
+  return (
+    <div className={`flex-col justify-center overflow-hidden rounded-2xl bg-white p-6 shadow-xl ring-1 ring-slate-200/60 ${className}`}>
+      <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-brand-600 text-white">
+        <ShieldCheck className="h-7 w-7" />
+      </span>
+      <p className="mt-3.5 text-[1.0625rem] font-bold leading-snug text-navy-800">
+        Verified
+        <br />
+        Community
+      </p>
+      <p className="mt-2 text-[0.8125rem] leading-relaxed text-slate-500">
+        All users are verified for a safe and trusted environment.
+      </p>
+    </div>
+  );
+}
+
+/* ================================== page ================================= */
+
+export default function Home() {
+  return (
+    <div className="flex flex-1 flex-col bg-white">
+      <main className="flex-1">
+        {/* ------------------------------- hero ---------------------------- */}
+        {/*
+          The photo is a background layer rather than an <img> so the headline
+          can run over its left edge. It starts at 46% and bleeds off the right.
+        */}
+        <section className="relative overflow-hidden bg-white lg:flex lg:flex-col lg:min-h-[calc(100vh-var(--header-h))]">
+          <div
+            aria-hidden
+            className="absolute inset-y-0 right-0 hidden w-[54%] bg-[url('/images/hero.jpg')] bg-cover bg-[position:38%_center] [-webkit-mask-image:linear-gradient(to_right,transparent,#000_26%)] [mask-image:linear-gradient(to_right,transparent,#000_26%)] lg:block"
+          />
+
+          <div className="relative mx-auto grid w-full max-w-page items-stretch gap-10 px-6 lg:px-10 xl:px-16 py-12 lg:flex-1 lg:grid-cols-2 lg:py-16">
+            {/* Sits at the foot of the photo, level with the social proof on the
+                left, and its right edge lines up with the trust bar below. */}
+            <VerifiedCard className="absolute bottom-16 right-6 hidden w-[14.5rem] min-h-[16rem] lg:flex" />
+
+            {/* The column fills the hero: the pitch takes the free space above,
+                which leaves the social proof sitting near the bottom. */}
+            <div className="flex flex-col">
+              <div className="lg:my-auto">
+              <span className="inline-flex items-center gap-2 rounded-full bg-brand-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-brand-700 ring-1 ring-brand-100">
+                <span className="grid h-4 w-4 place-items-center rounded-full bg-brand-600 text-white">
+                  <Check className="h-2.5 w-2.5" />
+                </span>
+                A trust-first freelance marketplace
+              </span>
+
+              {/* Two lines, always — the long first line is allowed to run past
+                  the column and over the photo rather than wrapping to three. */}
+              <h1 className="mt-7 text-[7.2vw] font-bold leading-[1.14] tracking-tight text-navy-800 sm:text-[5.4vw] lg:whitespace-nowrap lg:text-[min(4vw,63px)]">
+                Hire trusted freelancers.
+                <br />
+                Get work{" "}
+                <span className="relative inline-block">
+                  <span className="text-brand-600">done</span>.
+                  <svg
+                    viewBox="0 0 100 10"
+                    preserveAspectRatio="none"
+                    aria-hidden
+                    className="absolute -bottom-[0.16em] left-0 h-[0.17em] w-full overflow-visible text-brand-600"
+                  >
+                    <path
+                      d="M1 8.4Q50 0.6 99 5.6"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={3}
+                      strokeLinecap="round"
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  </svg>
+                </span>
+              </h1>
+
+              <p className="mt-7 max-w-lg text-[1.0625rem] leading-[1.95] text-slate-600">
+                Trovework connects verified freelancers with clients worldwide. Every user is
+                verified so you can collaborate with confidence.
+              </p>
+
+              <div className="mt-9 flex flex-col gap-3 sm:flex-row">
+                <Link
+                  href="/register?role=client"
+                  className="rounded-lg bg-brand-600 px-8 py-3 text-center text-sm font-semibold text-white transition hover:bg-brand-700"
+                >
+                  I&apos;m a Client
+                </Link>
+                <Link
+                  href="/register?role=freelancer"
+                  className="rounded-lg bg-white px-8 py-3 text-center text-sm font-semibold text-brand-600 ring-1 ring-brand-300 transition hover:bg-brand-50"
+                >
+                  I&apos;m a Freelancer
+                </Link>
+              </div>
+
+              </div>
+
+              <div className="mt-12 flex flex-wrap items-center gap-4 lg:mt-0 lg:pt-12">
+                <span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-brand-50 text-brand-600">
+                  <ShieldCheck className="h-7 w-7" />
+                </span>
+                <div>
+                  <p className="text-sm font-semibold text-navy-800">Every member is verified</p>
+                  <p className="text-xs text-slate-500">Real people only — no anonymous accounts, ever.</p>
+                </div>
+              </div>
+            </div>
+
+            {/* below lg the photo can't bleed, so it becomes a banner + card */}
+            <div className="lg:hidden">
+              <div
+                role="img"
+                aria-label="Two people working together at a laptop"
+                className="aspect-[16/9] w-full rounded-2xl bg-[url('/images/hero.jpg')] bg-cover bg-[position:center_30%]"
+              />
+              <VerifiedCard className="mt-4 flex max-w-xs" />
+            </div>
+          </div>
+        </section>
+
+        {/* ---------------------------- trust bar --------------------------- */}
+        <section id="trust" className="mx-auto max-w-page px-6 lg:px-10 xl:px-16 pb-4 pt-8">
+          <div className={`grid ${CARD} rounded-2xl sm:grid-cols-2 lg:grid-cols-4`}>
+            {TRUST_ITEMS.map((t, i) => (
+              <div
+                key={t.title}
+                className={`flex gap-4 px-8 py-12 ${i > 0 ? "lg:border-l lg:border-slate-200/70" : ""}`}
+              >
+                <span className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-brand-50 text-brand-600">
+                  {t.icon}
+                </span>
+                <div>
+                  <h3 className="text-sm font-semibold text-navy-800">{t.title}</h3>
+                  <p className="mt-1.5 text-xs leading-relaxed text-slate-500">{t.body}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* ---------------------------- categories -------------------------- */}
+        <section id="categories" className="mx-auto max-w-page px-6 lg:px-10 xl:px-16 py-14">
+          <SectionHeading title="Popular Categories" action="View all categories" />
+          <div className="mt-7 grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-8">
+            {CATEGORIES.map((c) => (
+              <Link
+                key={c.name}
+                href={`/freelancers?category=${encodeURIComponent(c.name)}`}
+                className={`group flex flex-col items-center gap-3.5 px-3 py-7 text-center transition hover:-translate-y-0.5 hover:ring-brand-200 ${CARD}`}
+              >
+                <span className="text-brand-600">{c.icon}</span>
+                <span className="text-xs font-medium leading-tight text-navy-800">{c.name}</span>
+              </Link>
+            ))}
+            <Link
+              href="/freelancers"
+              className={`group flex flex-col items-center gap-3.5 px-3 py-7 text-center transition hover:-translate-y-0.5 hover:ring-brand-200 ${CARD}`}
+            >
+              <span className="text-brand-400">
+                <Dots className="h-12 w-12" />
+              </span>
+              <span className="text-xs font-medium leading-tight text-navy-800">More Categories</span>
+            </Link>
+          </div>
+        </section>
+
+        {/* --------------------------- how it works ------------------------- */}
+        <section id="how" className="bg-white py-14">
+          <div className="mx-auto max-w-page px-6 lg:px-10 xl:px-16">
+            <div className="text-center">
+              <h2 className="text-2xl font-bold tracking-tight text-navy-800 sm:text-3xl">How It Works</h2>
+              <p className="mt-2.5 text-sm text-slate-500">Get started in three simple steps</p>
+            </div>
+
+            <div className="relative mt-12">
+              {/* dashed connector, as in the comp */}
+              <div className="absolute left-[16.6%] right-[16.6%] top-6 hidden border-t border-dashed border-brand-200 lg:block" />
+              <div className="grid gap-12 lg:grid-cols-3">
+                {STEPS.map((s, i) => (
+                  <div key={s.title} className="relative flex flex-col items-center text-center">
+                    <span className="relative z-10 grid h-12 w-12 place-items-center rounded-full bg-brand-100 text-base font-semibold text-brand-600">
+                      {i + 1}
+                    </span>
+                    <div className="mt-8 flex h-56 w-full max-w-sm items-center justify-center rounded-xl bg-slate-50/80 p-6">
+                      {STEP_ART[i]}
+                    </div>
+                    <h3 className="mt-6 font-semibold text-navy-800">{s.title}</h3>
+                    <p className="mt-2 max-w-xs text-sm leading-relaxed text-slate-500">{s.body}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ------------------------------ stats ----------------------------- */}
+        <section className="mx-auto max-w-page px-6 lg:px-10 xl:px-16 py-12">
+          <div className="grid gap-10 rounded-2xl bg-gradient-to-r from-stat-from via-stat-via to-stat-to px-8 py-14 sm:grid-cols-2 lg:grid-cols-4">
+            {STATS.map((s, i) => (
+              <div
+                key={s.label}
+                className={`flex flex-col items-center gap-2 text-white ${i > 0 ? "lg:border-l lg:border-white/15" : ""}`}
+              >
+                <div className="flex items-center gap-3.5">
+                  <span className="text-white/75">{s.icon}</span>
+                  <p className="text-3xl font-bold leading-none">{s.value}</p>
+                </div>
+                <p className="text-sm text-white/75">{s.label}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* Real verified freelancers from the API; the section hides itself
+            until there are some, so we never show fabricated people. */}
+        <FeaturedFreelancers />
+
+        {/* ---------------------------- why trovework ----------------------- */}
+        <section className="mx-auto max-w-page px-6 lg:px-10 xl:px-16 py-14">
+          <h2 className="text-center text-2xl font-bold tracking-tight text-navy-800 sm:text-3xl">
+            Built so you can work with confidence
+          </h2>
+          <div className="mt-9 grid gap-5 md:grid-cols-3">
+            {WHY.map((w) => (
+              <div key={w.title} className={`p-6 ${CARD}`}>
+                <span className="grid h-11 w-11 place-items-center rounded-xl bg-brand-50 text-brand-600">
+                  {w.icon}
+                </span>
+                <h3 className="mt-4 text-base font-bold text-navy-800">{w.title}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-slate-600">{w.body}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* ------------------------------- CTA ------------------------------ */}
+        <section className="mx-auto max-w-page px-6 lg:px-10 xl:px-16 py-8">
+          <div className="relative overflow-hidden rounded-2xl bg-brand-600 px-8 py-20 text-center">
+            {/* dotted world map, as in the comp: the Americas at the left edge,
+                Europe/Africa/Asia/Oceania at the right, the Atlantic left open
+                in the middle for the headline */}
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-y-0 left-0 hidden w-[30%] bg-[url('/images/dots-americas.svg')] bg-contain bg-left bg-no-repeat opacity-20 sm:block"
+            />
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-y-0 right-0 hidden w-[34%] bg-[url('/images/dots-eastern.svg')] bg-contain bg-right bg-no-repeat opacity-20 sm:block"
+            />
+            <div className="relative">
+              <h2 className="text-2xl font-bold tracking-tight text-white sm:text-4xl">
+                Join a global community built on trust
+              </h2>
+              <p className="mt-4 text-sm text-brand-100 sm:text-base">
+                Create your free account today and start connecting.
+              </p>
+              <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
+                <Link
+                  href="/register?role=client"
+                  className="rounded-lg bg-white px-8 py-3 text-sm font-semibold text-brand-600 transition hover:bg-brand-50"
+                >
+                  I&apos;m a Client
+                </Link>
+                <Link
+                  href="/register?role=freelancer"
+                  className="rounded-lg px-8 py-3 text-sm font-semibold text-white ring-1 ring-white/60 transition hover:bg-white/10"
+                >
+                  I&apos;m a Freelancer
+                </Link>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ------------------------------- blog ----------------------------- */}
+        <section id="blog" className="mx-auto max-w-page px-6 lg:px-10 xl:px-16 py-14">
+          <SectionHeading title="Latest from the Blog" action="View all articles" href="/blog" />
+          <div className="mt-7 grid gap-6 md:grid-cols-3">
+            {POSTS.map((p) => (
+              <Link key={p.title} href={`/blog/${p.slug}`} className={`group flex flex-col overflow-hidden transition hover:shadow-md ${CARD}`}>
+                <div className="relative aspect-[203/102]">
+                  <Image
+                    src={p.image}
+                    alt=""
+                    fill
+                    sizes="(min-width: 768px) 33vw, 100vw"
+                    className="object-cover"
+                  />
+                  <span className="absolute bottom-3 left-3 rounded bg-brand-600 px-2 py-1 text-[0.625rem] font-bold tracking-wide text-white">
+                    {p.tag}
+                  </span>
+                </div>
+                <div className="flex flex-1 flex-col px-6 py-7">
+                  <h3 className="text-lg font-semibold leading-snug text-navy-800 group-hover:text-brand-600">{p.title}</h3>
+                  {/* Titles run to one or two lines, so the excerpt and date are
+                      pushed to the foot and line up across the row. The excerpt
+                      holds two lines whatever its length — in production these
+                      will be longer and would otherwise shift the date. */}
+                  <div className="mt-auto pt-3">
+                    <p className="line-clamp-2 min-h-[3.25em] text-sm leading-relaxed text-slate-500">
+                      {p.excerpt}
+                    </p>
+                    <p className="mt-8 text-xs text-slate-400">
+                      {p.date} &nbsp;•&nbsp; {p.read}
+                    </p>
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      </main>
+    </div>
+  );
+}

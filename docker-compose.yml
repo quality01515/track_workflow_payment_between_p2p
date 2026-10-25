@@ -1,0 +1,107 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: trovework-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-trovework}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-trovework}
+    # Deliberately no published port: only the api container reaches the DB.
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-trovework}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    image: trovework-api:latest
+    container_name: trovework-api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    # Localhost only — nginx proxies /api through to here.
+    ports:
+      - "127.0.0.1:4000:4000"
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-trovework}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-trovework}?schema=public
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?set JWT_ACCESS_SECRET in .env}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?set JWT_REFRESH_SECRET in .env}
+      PII_ENCRYPTION_KEY: ${PII_ENCRYPTION_KEY:?set PII_ENCRYPTION_KEY in .env}
+      ACCESS_TOKEN_TTL: ${ACCESS_TOKEN_TTL:-15m}
+      REFRESH_TOKEN_TTL: ${REFRESH_TOKEN_TTL:-7d}
+      WEB_ORIGIN: ${WEB_ORIGIN:-https://trovework.com}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
+      # Google OAuth (optional — sign-in routes 503 until these are set).
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_CALLBACK_URL: ${GOOGLE_CALLBACK_URL:-https://trovework.com/api/auth/google/callback}
+      # SMTP for password-reset email (optional — falls back to logging the link).
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      # ID verification engine: "auto" = face-match + OCR; anything else = manual
+      # review only. The auto engine always falls back to manual on any failure.
+      ID_VERIFY_ENGINE: ${ID_VERIFY_ENGINE:-manual}
+      ID_VERIFY_VERIFY_MIN: ${ID_VERIFY_VERIFY_MIN:-0.6}
+      ID_VERIFY_REJECT_MAX: ${ID_VERIFY_REJECT_MAX:-0.4}
+
+      # Verification SMS (seven.io). Optional: leave it unset and the app runs
+      # normally with phone verification switched off — that one endpoint
+      # answers 503 instead of pretending a code was sent. Add the key when the
+      # account exists and the feature turns itself on, no code change needed.
+      SEVEN_API_KEY: ${SEVEN_API_KEY:-}
+      SEVEN_SMS_FROM: ${SEVEN_SMS_FROM:-Trovework}
+      # Development only: with no SEVEN_API_KEY, set this to "true" to log the
+      # verification code to the API log instead of sending an SMS, so the phone
+      # flow can be tested end to end. Never enable it with real users.
+      SMS_DEV_LOG: ${SMS_DEV_LOG:-}
+      # Cost controls; see apps/api/src/verification/sms-pricing.ts for the
+      # blocked-destination list.
+      PHONE_RESEND_COOLDOWN_SECONDS: ${PHONE_RESEND_COOLDOWN_SECONDS:-30}
+      PHONE_MAX_SENDS_PER_DAY: ${PHONE_MAX_SENDS_PER_DAY:-5}
+      # Public assets (profile photos) go here; nginx serves the same volume at
+      # /uploads. SECURED_DIR (ID images/selfies) is never served.
+      PUBLIC_DIR: /app/storage
+      PUBLIC_URL_BASE: /uploads
+      SECURED_DIR: /app/secured
+    volumes:
+      # Uploads live on the host. /secured holds ID images and selfies and is
+      # never served by nginx (FR-F-3).
+      - /srv/trovework-data/storage:/app/storage
+      - /srv/trovework-data/secured:/app/secured
+
+  web:
+    build:
+      # Context is the monorepo root so the workspace lockfile is available.
+      context: .
+      dockerfile: apps/web/Dockerfile
+    image: trovework-web:latest
+    container_name: trovework-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    # Bind to localhost only — nginx on the host is the sole public entry point.
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      NODE_ENV: production
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:3000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  db_data:

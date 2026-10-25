@@ -1,0 +1,376 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  client
+  freelancer
+  admin
+}
+
+enum AccountStatus {
+  active
+  banned
+  pending
+}
+
+enum PostStatus {
+  active
+  blocked
+  draft
+}
+
+enum VerificationStatus {
+  pending
+  approved
+  rejected
+}
+
+model User {
+  id           String        @id @default(uuid()) @db.Uuid
+  email        String        @unique
+  // Null for accounts created via a social provider (e.g. Google) that have
+  // not set a password. Such users can still add one later via password reset.
+  passwordHash String?       @map("password_hash")
+  // Set when the account is linked to a Google identity.
+  googleId     String?       @unique @map("google_id")
+  fullName     String        @map("full_name")
+  role         Role
+  status       AccountStatus @default(active)
+
+  // Location — also drives the file-storage hierarchy (country/state/user).
+  country    String
+  state      String
+  postalCode String @map("postal_code")
+
+  // Verification. Both gate publishing; idVerified additionally drives
+  // profile visibility and a client's access to contact info and chat.
+  phone         String?
+  phoneVerified Boolean @default(false) @map("phone_verified")
+  idVerified    Boolean @default(false) @map("id_verified")
+  // When idVerified last flipped true — for the admin "verified today" metric
+  // and the verifications-over-time graph. Null for accounts verified before
+  // this was tracked.
+  verifiedAt    DateTime? @map("verified_at")
+  idCardPath    String? @map("id_card_path")
+  selfiePath    String? @map("selfie_path")
+  idMatchScore  Decimal? @map("id_match_score") @db.Decimal(5, 4)
+
+  strikeCount Int @default(0) @map("strike_count")
+
+  // Sign-in provenance, for admin oversight (fraud / ban-evasion checks). The
+  // IPs are classified (VPS/VPN/proxy) on demand when an admin views the user.
+  signupIp    String?   @map("signup_ip")
+  lastLoginIp String?   @map("last_login_ip")
+  lastLoginAt DateTime? @map("last_login_at")
+
+  refreshTokens       RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
+  posts            Post[]
+  violations       Violation[]
+  profile          FreelancerProfile?
+  idVerifications  IdVerification[]  @relation("subject")
+  reviewedIdChecks IdVerification[]  @relation("reviewer")
+  phoneChallenge   PhoneChallenge?
+  clientConvos     Conversation[]    @relation("client")
+  freelancerConvos Conversation[]    @relation("freelancer")
+  messages         Message[]
+  reviewsWritten   Review[]          @relation("author")
+  reviewsReceived  Review[]          @relation("subject")
+  loginEvents      LoginEvent[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([role])
+  @@map("users")
+}
+
+/// A chat thread. Always exactly one verified client and one freelancer — the
+/// pair is unique, and two freelancers can never share one (FR-C-2, enforced in
+/// the service since the schema alone can't express "different roles").
+model Conversation {
+  id           String    @id @default(uuid()) @db.Uuid
+  clientId     String    @map("client_id") @db.Uuid
+  client       User      @relation("client", fields: [clientId], references: [id], onDelete: Cascade)
+  freelancerId String    @map("freelancer_id") @db.Uuid
+  freelancer   User      @relation("freelancer", fields: [freelancerId], references: [id], onDelete: Cascade)
+  messages     Message[]
+  lastMessageAt DateTime? @map("last_message_at")
+  // When each party last opened the thread — drives unread counts. Null means
+  // never opened, so every message from the other side counts as unread.
+  clientLastReadAt     DateTime? @map("client_last_read_at")
+  freelancerLastReadAt DateTime? @map("freelancer_last_read_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@unique([clientId, freelancerId])
+  @@index([clientId])
+  @@index([freelancerId])
+  @@map("conversations")
+}
+
+/// One chat message. senderId is always one of the conversation's two parties.
+model Message {
+  id             String       @id @default(uuid()) @db.Uuid
+  conversationId String       @map("conversation_id") @db.Uuid
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String       @map("sender_id") @db.Uuid
+  sender         User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  body           String
+  sentAt         DateTime     @default(now()) @map("sent_at")
+
+  @@index([conversationId, sentAt])
+  @@map("messages")
+}
+
+/// A rating + comment one user leaves another after they've worked together
+/// (FR-RV-1). Directional and one-per-pair: a reviewer has a single review of a
+/// given counterpart. Aggregates feed profiles and search sorting (FR-RV-2).
+model Review {
+  id       String @id @default(uuid()) @db.Uuid
+  fromId   String @map("from_id") @db.Uuid
+  from     User   @relation("author", fields: [fromId], references: [id], onDelete: Cascade)
+  toId     String @map("to_id") @db.Uuid
+  to       User   @relation("subject", fields: [toId], references: [id], onDelete: Cascade)
+  rating   Int
+  comment  String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([fromId, toId])
+  @@index([toId])
+  @@map("reviews")
+}
+
+/// A one-time SMS code, hashed. One live challenge per user; issuing a new one
+/// replaces the old. Verifying a code flips users.phone_verified (FR-A-3, moved
+/// to the publish gate).
+model PhoneChallenge {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @unique @map("user_id") @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  phone     String
+  codeHash  String   @map("code_hash")
+  expiresAt DateTime @map("expires_at")
+  attempts  Int      @default(0)
+
+  /// Every SMS costs real money, so sends are rate-limited on two axes:
+  /// lastSentAt enforces the short resend cooldown, and sendCount within the
+  /// window rolling from windowStartedAt caps the daily spend per account.
+  /// Neither resets when the user edits the number — otherwise cycling through
+  /// numbers would reset the budget, which is exactly the abuse being stopped.
+  lastSentAt      DateTime @default(now()) @map("last_sent_at")
+  sendCount       Int      @default(0) @map("send_count")
+  windowStartedAt DateTime @default(now()) @map("window_started_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("phone_challenges")
+}
+
+/// An ID verification submission. The engine (or an admin) decides; approval
+/// flips users.id_verified and, for a freelancer, makes the profile visible.
+/// Images live in the secured, non-public store (FR-F-3); only their paths are
+/// here. idNumber/dob are sensitive and stored ENCRYPTED at rest via
+/// PiiCryptoService (AES-256-GCM, NFR-SEC-2); the admin review path decrypts
+/// them for display. The DB volume should still be encrypted at rest too.
+model IdVerification {
+  id       String             @id @default(uuid()) @db.Uuid
+  userId   String             @map("user_id") @db.Uuid
+  user     User               @relation("subject", fields: [userId], references: [id], onDelete: Cascade)
+  fullName String             @map("full_name")
+  dob      String
+  idNumber String             @map("id_number")
+
+  idFrontPath String  @map("id_front_path")
+  idBackPath  String? @map("id_back_path")
+  selfiePath  String  @map("selfie_path")
+
+  status VerificationStatus @default(pending)
+  score  Decimal?           @db.Decimal(5, 4)
+
+  reviewedById String?   @map("reviewed_by_id") @db.Uuid
+  reviewedBy   User?     @relation("reviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewNote   String?   @map("review_note")
+  reviewedAt   DateTime? @map("reviewed_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([status])
+  @@map("id_verifications")
+}
+
+/// A freelancer's public profile. Hidden from browse and search until ID
+/// verification passes (isVisible mirrors users.id_verified). The contact_*
+/// fields are GATED — served only to a verified client (FR-M-1, NFR-SEC-3).
+model FreelancerProfile {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @unique @map("user_id") @db.Uuid
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  slug        String   @unique
+  displayName String   @map("display_name")
+  headline    String?
+  bio         String?
+  category    String
+  skills      String[]
+  hourlyRate  Decimal? @map("hourly_rate") @db.Decimal(12, 2)
+  availability String?
+  photoPath   String?  @map("photo_path")
+  resumePath  String?  @map("resume_path")
+  isVisible   Boolean  @default(false) @map("is_visible")
+
+  // Denormalised review aggregate, maintained by ReviewsService, so search can
+  // filter and sort by rating in one query with proper pagination.
+  ratingAvg   Decimal @default(0) @db.Decimal(3, 2) @map("rating_avg")
+  ratingCount Int     @default(0) @map("rating_count")
+
+  // Gated contact handles — never returned unless the viewer is a verified client.
+  contactTelegram String? @map("contact_telegram")
+  contactDiscord  String? @map("contact_discord")
+  contactWhatsapp String? @map("contact_whatsapp")
+  contactLinkedin String? @map("contact_linkedin")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([isVisible])
+  @@index([category])
+  @@index([ratingAvg])
+  @@map("freelancer_profiles")
+}
+
+/// A freelancer's service listing. Scanned for contact info on every write; a
+/// leak forces status = blocked and records a violation (dev doc §8).
+model Post {
+  id            String     @id @default(uuid()) @db.Uuid
+  authorId      String     @map("author_id") @db.Uuid
+  author        User       @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  title         String
+  description   String
+  category      String
+  priceFrom     Decimal?   @map("price_from") @db.Decimal(12, 2)
+  status        PostStatus @default(draft)
+  /// Set only when status = blocked: the substrings the scanner matched.
+  blockedReason String?    @map("blocked_reason")
+
+  violations Violation[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([authorId])
+  @@index([status])
+  @@index([category])
+  @@map("posts")
+}
+
+/// The service taxonomy, managed by admins (the freelancer's `category` and a
+/// post's `category` reference these by name). `sortOrder` drives display order;
+/// `isActive` hides a category from browse/new-post pickers without deleting the
+/// name off existing listings, which keep the plain string.
+model Category {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @unique
+  slug      String   @unique
+  sortOrder Int      @map("sort_order")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([isActive])
+  @@map("categories")
+}
+
+/// One row per contact-info leak caught in a post. Feeds the admin panel and
+/// the 3-strike count on the user (FR-M-3/4).
+model Violation {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  postId       String?  @map("post_id") @db.Uuid
+  post         Post?    @relation(fields: [postId], references: [id], onDelete: SetNull)
+  detectedText String   @map("detected_text")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@map("violations")
+}
+
+/// A one-time password-reset token, stored as a SHA-256 hash so a database read
+/// can't be replayed. Requesting a reset invalidates the user's older unused
+/// tokens; consuming one (or its expiry) makes it unusable, and a successful
+/// reset also revokes every refresh token so old sessions die.
+model PasswordResetToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+/// One row per issued refresh token. Stored as a SHA-256 hash so a database
+/// read cannot be replayed as a session. Rotated on every refresh.
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+/// One row per unique visitor per day, so daily and all-time visitor totals can
+/// be computed without storing any personal data — just a random visitor id
+/// (from a cookie) and the date.
+/// One row per successful login (and per registration, which is a first login),
+/// so the admin dashboard can show daily active users. lastLoginAt on User only
+/// holds the most recent login and can't reconstruct a per-day series.
+model LoginEvent {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@index([userId])
+  @@map("login_events")
+}
+
+model Visit {
+  id        String   @id @default(uuid()) @db.Uuid
+  visitorId String   @map("visitor_id")
+  day       DateTime @db.Date
+
+  // Captured on the first hit of the day for this visitor, for the admin
+  // visitor-history view. The IP-intelligence fields below are filled in lazily
+  // the first time an admin views the row, then cached (classifiedAt marks it
+  // done, so we don't re-query an unchanging fact).
+  ip           String?
+  userAgent    String?   @map("user_agent")
+  ipCountry    String?   @map("ip_country")
+  ipHosting    Boolean?  @map("ip_hosting") // datacentre / VPS
+  ipProxy      Boolean?  @map("ip_proxy") // VPN / proxy / Tor
+  classifiedAt DateTime? @map("classified_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([visitorId, day])
+  @@index([day])
+  @@index([createdAt])
+  @@map("visits")
+}

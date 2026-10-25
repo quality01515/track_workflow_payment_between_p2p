@@ -1,0 +1,100 @@
+import Link from "next/link";
+import { Logo } from "@/components/brand";
+
+// Only real, working destinations — no placeholder links to pages that don't exist.
+const COLUMNS: { heading: string; links: { label: string; href: string }[] }[] = [
+  {
+    heading: "Marketplace",
+    links: [
+      { label: "Browse Freelancers", href: "/freelancers" },
+      { label: "How It Works", href: "/#how" },
+      { label: "Safety & Trust", href: "/safety" },
+      { label: "Blog", href: "/#blog" },
+    ],
+  },
+  {
+    heading: "Get Started",
+    links: [
+      { label: "Create an account", href: "/register" },
+      { label: "Log in", href: "/login" },
+    ],
+  },
+  {
+    heading: "Legal",
+    links: [
+      { label: "Terms of Service", href: "/terms" },
+      { label: "Privacy Policy", href: "/privacy" },
+    ],
+  },
+];
+
+export function SiteFooter({ newsletter = false }: { newsletter?: boolean }) {
+  // navy-900 stays dark in both themes, so the body text has to be pinned to a
+  // light slate rather than following the ramp, which inverts.
+  return (
+    <footer className="bg-navy-900 text-slate-300 dark:text-slate-700">
+      <div className="mx-auto max-w-page px-6 lg:px-10 xl:px-16 py-24">
+        <div
+          className={`grid gap-10 ${
+            newsletter ? "lg:grid-cols-[1.3fr_repeat(3,0.9fr)_1.2fr]" : "lg:grid-cols-[1.4fr_repeat(3,1fr)]"
+          }`}
+        >
+          <div>
+            <Logo dark />
+            <p className="mt-4 max-w-xs text-sm leading-relaxed text-slate-400">
+              A trust-first global freelance marketplace. Connect, collaborate, and get work done
+              with confidence.
+            </p>
+          </div>
+
+          {COLUMNS.map((col) => (
+            <div key={col.heading}>
+              <h3 className="text-sm font-semibold text-white">{col.heading}</h3>
+              <ul className="mt-4 space-y-2.5">
+                {col.links.map((l) => (
+                  <li key={l.label}>
+                    <Link href={l.href} className="text-sm text-slate-400 transition hover:text-white">
+                      {l.label}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+
+          {newsletter ? (
+            <div>
+              <h3 className="text-sm font-semibold text-white">Stay in the loop</h3>
+              <p className="mt-4 text-sm leading-relaxed text-slate-400">
+                Get tips, updates, and resources to help you succeed.
+              </p>
+              {/* TODO: wire to the mailing-list endpoint when the API lands. */}
+              <form className="mt-4 space-y-2.5">
+                <input
+                  type="email"
+                  required
+                  placeholder="Enter your email"
+                  aria-label="Email address"
+                  className="w-full rounded-lg border border-white/15 bg-white/5 px-3.5 py-2.5 text-sm text-white placeholder:text-slate-500 focus:border-brand-400 focus:outline-none"
+                />
+                <button
+                  type="submit"
+                  className="w-full rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-700"
+                >
+                  Subscribe
+                </button>
+              </form>
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="border-t border-white/10">
+        <div className="mx-auto flex max-w-page flex-col gap-2 px-6 lg:px-10 xl:px-16 py-5 text-xs text-slate-400 sm:flex-row sm:items-center sm:justify-between">
+          <p>© 2026 Trovework. All rights reserved.</p>
+          <p>Made with ❤️ for a better freelance world.</p>
+        </div>
+      </div>
+    </footer>
+  );
+}
